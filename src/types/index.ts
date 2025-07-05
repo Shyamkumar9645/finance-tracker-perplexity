@@ -60,3 +60,20 @@ export interface Category {
   type: 'income' | 'expense';
   created_at: string;
 }
+
+export interface Budget {
+  id: number;
+  category_id: number;
+  category_name?: string;
+  name: string;
+  amount: number;
+  period: 'weekly' | 'monthly' | 'quarterly' | 'yearly';
+  start_date: string;
+  end_date: string;
+  status: 'active' | 'paused' | 'completed';
+  notes?: string;
+  created_at: string;
+  updated_at?: string;
+  spent?: number;
+  remaining?: number;
+}

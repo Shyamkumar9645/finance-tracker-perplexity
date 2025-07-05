@@ -7,6 +7,7 @@ import { ReportsSection } from './components/ReportsSection';
 import { SettingsSection } from './components/SettingsSection';
 import { TransactionModal } from './components/TransactionModal';
 import { CategoryModal } from './components/CategoryModal';
+import { Category, Transaction } from './types';
 import './App.css';
 
 type View = 'dashboard' | 'transactions' | 'budgets' | 'categories' | 'reports' | 'settings';
@@ -15,20 +16,45 @@ function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [showTransactionModal, setShowTransactionModal] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
-  const handleAddTransaction = (transaction: any) => {
-    // Handle transaction creation
-    console.log('New transaction:', transaction);
-    // TODO: Add to backend API
+  const handleAddTransaction = () => {
+    console.log('App: handleAddTransaction called');
+    setEditingTransaction(null);
+    setShowTransactionModal(true);
+  };
+
+  const handleEditTransaction = (transaction: Transaction) => {
+    console.log('App: handleEditTransaction called', transaction);
+    setEditingTransaction(transaction);
+    setShowTransactionModal(true);
+  };
+
+  const handleCloseTransactionModal = () => {
+    console.log('App: handleCloseTransactionModal called');
     setShowTransactionModal(false);
+    setEditingTransaction(null);
   };
 
-  const handleAddCategory = (category: any) => {
-    // Handle category creation
-    console.log('New category:', category);
-    // TODO: Add to backend API
-    setShowCategoryModal(false);
+  const handleAddCategory = () => {
+    console.log('App: handleAddCategory called');
+    setEditingCategory(null);
+    setShowCategoryModal(true);
   };
+
+  const handleEditCategory = (category: Category) => {
+    console.log('App: handleEditCategory called', category);
+    setEditingCategory(category);
+    setShowCategoryModal(true);
+  };
+
+  const handleCloseCategoryModal = () => {
+    console.log('App: handleCloseCategoryModal called');
+    setShowCategoryModal(false);
+    setEditingCategory(null);
+  };
+
 
   const renderSidebar = () => (
     <nav className="sidebar" id="sidebar">
@@ -102,7 +128,10 @@ function App() {
             <button 
               className="btn btn--primary"
               id="addTransactionBtn2"
-              onClick={() => setShowTransactionModal(true)}
+              onClick={() => {
+                console.log('Add Transaction button clicked!');
+                handleAddTransaction();
+              }}
             >
               + Add Transaction
             </button>
@@ -112,6 +141,7 @@ function App() {
             <button 
               className="btn btn--primary"
               id="addBudgetBtn"
+              onClick={() => setCurrentView('categories')}
             >
               + Add Budget
             </button>
@@ -121,7 +151,10 @@ function App() {
             <button 
               className="btn btn--primary"
               id="addCategoryBtn"
-              onClick={() => setShowCategoryModal(true)}
+              onClick={() => {
+                console.log('Add Category button clicked!');
+                handleAddCategory();
+              }}
             >
               + Add Category
             </button>
@@ -131,6 +164,11 @@ function App() {
             <button 
               className="btn btn--secondary"
               id="exportDataBtn"
+              onClick={() => {
+                // Trigger export from ReportsSection
+                const exportEvent = new CustomEvent('export-data');
+                document.dispatchEvent(exportEvent);
+              }}
             >
               Export Data
             </button>
@@ -147,18 +185,27 @@ function App() {
             <Dashboard 
               loans={[]} 
               balances={{}} 
-              onAddTransaction={() => setShowTransactionModal(true)}
+              onAddTransaction={handleAddTransaction}
             />
           );
         
         case 'transactions':
-          return <TransactionsSection onAddTransaction={() => setShowTransactionModal(true)} />;
+          return <TransactionsSection onAddTransaction={handleAddTransaction} onEditTransaction={handleEditTransaction} />;
         
         case 'budgets':
-          return <BudgetsSection onAddBudget={() => alert('Budget creation feature coming soon!')} />;
+          return (
+            <BudgetsSection 
+              onAddBudget={() => setCurrentView('categories')}
+            />
+          );
         
         case 'categories':
-          return <CategoriesSection onAddCategory={() => setShowCategoryModal(true)} />;
+          return (
+            <CategoriesSection 
+              onAddCategory={() => setShowCategoryModal(true)}
+              onEditCategory={handleEditCategory}
+            />
+          );
         
         case 'reports':
           return <ReportsSection />;
@@ -171,7 +218,7 @@ function App() {
             <Dashboard 
               loans={[]} 
               balances={{}} 
-              onAddTransaction={() => setShowTransactionModal(true)}
+              onAddTransaction={handleAddTransaction}
             />
           );
       }
@@ -190,6 +237,8 @@ function App() {
     );
   };
 
+  console.log('App render: showTransactionModal:', showTransactionModal, 'showCategoryModal:', showCategoryModal);
+
   return (
     <div className="app-container">
       {renderSidebar()}
@@ -199,15 +248,16 @@ function App() {
       
       <TransactionModal
         isOpen={showTransactionModal}
-        onClose={() => setShowTransactionModal(false)}
-        onSubmit={handleAddTransaction}
+        onClose={handleCloseTransactionModal}
+        transaction={editingTransaction}
       />
       
       <CategoryModal
         isOpen={showCategoryModal}
-        onClose={() => setShowCategoryModal(false)}
-        onSubmit={handleAddCategory}
+        onClose={handleCloseCategoryModal}
+        category={editingCategory}
       />
+      
     </div>
   );
 }

@@ -1,99 +1,114 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { Category } from '../types';
+import { api } from '../utils/api';
 
 interface CategoryModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (category: CategoryFormData) => void;
-}
-
-interface CategoryFormData {
-  name: string;
-  icon: string;
-  color: string;
-  budgetLimit: number;
-  type: 'income' | 'expense';
+  category?: Category | null; // For editing
 }
 
 export const CategoryModal: React.FC<CategoryModalProps> = ({
   isOpen,
   onClose,
-  onSubmit
+  category
 }) => {
-  const [formData, setFormData] = useState<CategoryFormData>({
+  const [formData, setFormData] = useState({
     name: '',
     icon: '',
-    color: '#3498db',
-    budgetLimit: 0,
-    type: 'expense'
+    color: '#000000',
+    budget_limit: 0
   });
 
-  const [errors, setErrors] = useState<Partial<Record<keyof CategoryFormData, string>>>({});
+  const [loading, setLoading] = useState(false);
+  const isEditing = !!category;
 
-  const popularIcons = [
-    '🍕', '🚗', '🎬', '⚡', '🏥', '📚', '🛒', '✈️',
-    '💰', '💼', '📱', '🏠', '👕', '🎮', '☕', '🎵',
-    '🏋️', '🐕', '💡', '🔧', '📄', '🎁', '💊', '🚌'
-  ];
+  // Update form data when category prop changes
+  useEffect(() => {
+    if (category) {
+      setFormData({
+        name: category.name,
+        icon: category.icon || '',
+        color: category.color || '#000000',
+        budget_limit: category.budget_limit || 0
+      });
+    } else {
+      setFormData({
+        name: '',
+        icon: '',
+        color: '#000000',
+        budget_limit: 0
+      });
+    }
+  }, [category, isOpen]);
 
-  const predefinedColors = [
-    '#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6',
-    '#1abc9c', '#e67e22', '#34495e', '#f1c40f', '#95a5a6',
-    '#e91e63', '#673ab7', '#ff5722', '#607d8b', '#795548'
-  ];
-
-  const handleInputChange = (field: keyof CategoryFormData, value: any) => {
+  const handleInputChange = (field: string, value: any) => {
     setFormData(prev => ({
       ...prev,
       [field]: value
     }));
-    
-    // Clear error for this field
-    if (errors[field]) {
-      setErrors(prev => ({
-        ...prev,
-        [field]: undefined
-      }));
-    }
   };
 
-  const validateForm = (): boolean => {
-    const newErrors: Partial<Record<keyof CategoryFormData, string>> = {};
-
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    console.log('CategoryModal: Form submitted', formData);
+    
     if (!formData.name.trim()) {
-      newErrors.name = 'Category name is required';
+      alert('Category name is required');
+      return;
     }
     
     if (!formData.icon.trim()) {
-      newErrors.icon = 'Icon is required';
-    }
-    
-    if (!formData.color) {
-      newErrors.color = 'Color is required';
+      alert('Icon is required');
+      return;
     }
 
-    if (formData.type === 'expense' && formData.budgetLimit < 0) {
-      newErrors.budgetLimit = 'Budget limit cannot be negative';
-    }
+    setLoading(true);
+    try {
+      const categoryData = {
+        name: formData.name.trim(),
+        icon: formData.icon.trim(),
+        color: formData.color,
+        budget_limit: parseFloat(formData.budget_limit.toString()) || 0,
+        type: 'expense' as 'expense' | 'income' // Default to expense for simplicity
+      };
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
+      console.log('CategoryModal: Sending data to API', categoryData);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (validateForm()) {
-      onSubmit(formData);
+      if (isEditing && category) {
+        console.log('CategoryModal: Updating category', category.id);
+        await api.updateCategory(category.id, categoryData);
+      } else {
+        console.log('CategoryModal: Creating new category');
+        await api.createCategory(categoryData);
+      }
+      
+      console.log('CategoryModal: API call successful');
+      
       // Reset form
       setFormData({
         name: '',
         icon: '',
-        color: '#3498db',
-        budgetLimit: 0,
-        type: 'expense'
+        color: '#000000',
+        budget_limit: 0
       });
-      setErrors({});
+      
+      // Refresh categories list
+      console.log('CategoryModal: Calling refresh function');
+      if ((window as any).refreshCategories) {
+        (window as any).refreshCategories();
+      } else {
+        console.warn('CategoryModal: refreshCategories function not found');
+      }
+      
+      console.log('CategoryModal: Closing modal');
       onClose();
+    } catch (error) {
+      console.error('CategoryModal: Error saving category:', error);
+      alert(`Failed to save category: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -101,140 +116,82 @@ export const CategoryModal: React.FC<CategoryModalProps> = ({
     setFormData({
       name: '',
       icon: '',
-      color: '#3498db',
-      budgetLimit: 0,
-      type: 'expense'
+      color: '#000000',
+      budget_limit: 0
     });
-    setErrors({});
     onClose();
   };
 
+  console.log('CategoryModal render: isOpen:', isOpen, 'category:', category);
+  
   if (!isOpen) return null;
 
   return (
-    <div className="modal" id="categoryModal">
+    <div className="modal active" id="categoryModal">
       <div className="modal-content">
         <div className="modal-header">
-          <h3 id="categoryModalTitle">Add Category</h3>
-          <button className="modal-close" onClick={handleCancel}>&times;</button>
+          <h3 id="categoryModalTitle">{isEditing ? 'Edit Category' : 'Add Category'}</h3>
+          <button className="modal-close" id="closeCategoryModal" onClick={handleCancel}>&times;</button>
         </div>
         <div className="modal-body">
           <form id="categoryForm" onSubmit={handleSubmit}>
             <div className="form-group">
-              <label className="form-label">Category Type</label>
-              <div className="transaction-type-toggle">
-                <input 
-                  type="radio" 
-                  id="expenseCategory" 
-                  name="categoryType" 
-                  value="expense" 
-                  checked={formData.type === 'expense'}
-                  onChange={(e) => handleInputChange('type', e.target.value as 'expense')}
-                />
-                <label htmlFor="expenseCategory" className="expense-label">Expense</label>
-                <input 
-                  type="radio" 
-                  id="incomeCategory" 
-                  name="categoryType" 
-                  value="income"
-                  checked={formData.type === 'income'}
-                  onChange={(e) => handleInputChange('type', e.target.value as 'income')}
-                />
-                <label htmlFor="incomeCategory" className="income-label">Income</label>
-              </div>
-            </div>
-
-            <div className="form-group">
               <label className="form-label">Category Name</label>
               <input 
                 type="text" 
-                className={`form-control ${errors.name ? 'error' : ''}`}
+                className="form-control" 
                 id="categoryName" 
                 placeholder="Enter category name"
                 value={formData.name}
                 onChange={(e) => handleInputChange('name', e.target.value)}
                 required 
               />
-              {errors.name && <span className="error-text">{errors.name}</span>}
             </div>
             
             <div className="form-group">
               <label className="form-label">Icon</label>
-              <div className="icon-selection">
-                <input 
-                  type="text" 
-                  className={`form-control ${errors.icon ? 'error' : ''}`}
-                  id="categoryIcon" 
-                  placeholder="Enter emoji icon or select below"
-                  value={formData.icon}
-                  onChange={(e) => handleInputChange('icon', e.target.value)}
-                  required 
-                />
-                <div className="popular-icons">
-                  {popularIcons.map((icon, index) => (
-                    <button
-                      key={index}
-                      type="button"
-                      className={`icon-option ${formData.icon === icon ? 'selected' : ''}`}
-                      onClick={() => handleInputChange('icon', icon)}
-                    >
-                      {icon}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {errors.icon && <span className="error-text">{errors.icon}</span>}
+              <input 
+                type="text" 
+                className="form-control" 
+                id="categoryIcon" 
+                placeholder="Enter emoji icon"
+                value={formData.icon}
+                onChange={(e) => handleInputChange('icon', e.target.value)}
+                required 
+              />
             </div>
             
             <div className="form-group">
               <label className="form-label">Color</label>
-              <div className="color-selection">
-                <input 
-                  type="color" 
-                  className={`form-control color-input ${errors.color ? 'error' : ''}`}
-                  id="categoryColor" 
-                  value={formData.color}
-                  onChange={(e) => handleInputChange('color', e.target.value)}
-                  required 
-                />
-                <div className="predefined-colors">
-                  {predefinedColors.map((color, index) => (
-                    <button
-                      key={index}
-                      type="button"
-                      className={`color-option ${formData.color === color ? 'selected' : ''}`}
-                      style={{ backgroundColor: color }}
-                      onClick={() => handleInputChange('color', color)}
-                    />
-                  ))}
-                </div>
-              </div>
-              {errors.color && <span className="error-text">{errors.color}</span>}
+              <input 
+                type="color" 
+                className="form-control" 
+                id="categoryColor"
+                value={formData.color}
+                onChange={(e) => handleInputChange('color', e.target.value)}
+                required 
+              />
             </div>
             
-            {formData.type === 'expense' && (
-              <div className="form-group">
-                <label className="form-label">Budget Limit (Optional)</label>
-                <input 
-                  type="number" 
-                  className={`form-control ${errors.budgetLimit ? 'error' : ''}`}
-                  id="categoryBudget" 
-                  placeholder="0.00" 
-                  step="0.01"
-                  value={formData.budgetLimit || ''}
-                  onChange={(e) => handleInputChange('budgetLimit', parseFloat(e.target.value) || 0)}
-                />
-                {errors.budgetLimit && <span className="error-text">{errors.budgetLimit}</span>}
-                <small className="form-help">Set a monthly budget limit for this category</small>
-              </div>
-            )}
+            <div className="form-group">
+              <label className="form-label">Budget Limit</label>
+              <input 
+                type="number" 
+                className="form-control" 
+                id="categoryBudget" 
+                placeholder="0.00" 
+                step="0.01"
+                value={formData.budget_limit || ''}
+                onChange={(e) => handleInputChange('budget_limit', parseFloat(e.target.value) || 0)}
+              />
+            </div>
             
             <div className="modal-actions">
-              <button type="button" className="btn btn--outline" onClick={handleCancel}>
+              <button type="button" className="btn btn--outline" id="cancelCategoryBtn" onClick={handleCancel}>
                 Cancel
               </button>
-              <button type="submit" className="btn btn--primary">
-                Save Category
+              <button type="submit" className="btn btn--primary" id="saveCategoryBtn" disabled={loading}>
+                {loading ? 'Saving...' : 'Save Category'}
               </button>
             </div>
           </form>

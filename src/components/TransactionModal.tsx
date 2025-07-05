@@ -1,41 +1,53 @@
 import React, { useState, useEffect } from 'react';
-import { Category } from '../types';
+import { Category, Transaction } from '../types';
 import { api } from '../utils/api';
 
 interface TransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (transaction: TransactionFormData) => void;
-  defaultType?: 'income' | 'expense';
-}
-
-interface TransactionFormData {
-  type: 'income' | 'expense';
-  amount: number;
-  category: string;
-  transaction_date: string;
-  description: string;
-  payment_method: string;
+  transaction?: Transaction | null; // For editing
 }
 
 export const TransactionModal: React.FC<TransactionModalProps> = ({
   isOpen,
   onClose,
-  onSubmit,
-  defaultType = 'expense'
+  transaction
 }) => {
-  const [formData, setFormData] = useState<TransactionFormData>({
-    type: defaultType,
+  const [formData, setFormData] = useState({
+    type: 'expense' as 'income' | 'expense',
     amount: 0,
     category: '',
-    transaction_date: new Date().toISOString().split('T')[0],
     description: '',
-    payment_method: ''
+    date: new Date().toISOString().split('T')[0],
+    paymentMethod: ''
   });
 
-  const [errors, setErrors] = useState<Partial<Record<keyof TransactionFormData, string>>>({});
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(false);
+  const isEditing = !!transaction;
+
+  // Update form data when transaction prop changes
+  useEffect(() => {
+    if (transaction) {
+      setFormData({
+        type: transaction.type,
+        amount: parseFloat(transaction.amount.toString()),
+        category: transaction.category,
+        description: transaction.description || '',
+        date: transaction.transaction_date,
+        paymentMethod: transaction.payment_method || ''
+      });
+    } else {
+      setFormData({
+        type: 'expense',
+        amount: 0,
+        category: '',
+        description: '',
+        date: new Date().toISOString().split('T')[0],
+        paymentMethod: ''
+      });
+    }
+  }, [transaction, isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -52,121 +64,130 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     }
   };
 
-  const paymentMethods = [
-    'Cash',
-    'Credit Card',
-    'Debit Card',
-    'Bank Transfer',
-    'PayPal',
-    'Venmo',
-    'Check',
-    'Other'
-  ];
-
-  // Filter categories based on transaction type
-  const filteredCategories = categories.filter(cat => cat.type === formData.type);
-
-  const handleInputChange = (field: keyof TransactionFormData, value: any) => {
+  const handleInputChange = (field: string, value: any) => {
     setFormData(prev => ({
       ...prev,
       [field]: value
     }));
-    
-    // Clear error for this field
-    if (errors[field]) {
-      setErrors(prev => ({
-        ...prev,
-        [field]: undefined
-      }));
-    }
-
-    // Clear category when type changes
-    if (field === 'type') {
-      setFormData(prev => ({
-        ...prev,
-        category: ''
-      }));
-    }
   };
 
-  const validateForm = (): boolean => {
-    const newErrors: Partial<Record<keyof TransactionFormData, string>> = {};
-
-    if (!formData.amount || formData.amount <= 0) {
-      newErrors.amount = 'Amount must be greater than 0';
+  // Filter categories based on transaction type
+  const filteredCategories = categories.filter(category => {
+    if (formData.type === 'income') {
+      return ['Salary', 'Freelance', 'Investment'].includes(category.name) || category.type === 'income';
+    } else {
+      return !['Salary', 'Freelance', 'Investment'].includes(category.name) || category.type === 'expense';
     }
-    
-    if (!formData.category) {
-      newErrors.category = 'Category is required';
-    }
-    
-    if (!formData.transaction_date) {
-      newErrors.transaction_date = 'Date is required';
-    }
-    
-    if (!formData.payment_method) {
-      newErrors.payment_method = 'Payment method is required';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (validateForm()) {
-      setLoading(true);
-      try {
-        await api.createTransaction(formData);
-        
-        // Reset form
-        setFormData({
-          type: defaultType,
-          amount: 0,
-          category: '',
-          transaction_date: new Date().toISOString().split('T')[0],
-          description: '',
-          payment_method: ''
-        });
-        setErrors({});
-        
-        // Refresh transactions list
-        if ((window as any).refreshTransactions) {
-          (window as any).refreshTransactions();
-        }
-        
-        onClose();
-      } catch (error) {
-        console.error('Error creating transaction:', error);
-        alert('Failed to create transaction. Please try again.');
-      } finally {
-        setLoading(false);
+    console.log('TransactionModal: Form submitted', formData);
+    
+    if (!formData.amount || formData.amount <= 0) {
+      alert('Amount must be greater than 0');
+      return;
+    }
+    
+    if (!formData.category) {
+      alert('Category is required');
+      return;
+    }
+    
+    if (!formData.date) {
+      alert('Date is required');
+      return;
+    }
+    
+    if (!formData.paymentMethod) {
+      alert('Payment method is required');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const transactionData = {
+        type: formData.type,
+        amount: parseFloat(formData.amount.toString()),
+        category: formData.category,
+        description: formData.description,
+        transaction_date: formData.date,
+        payment_method: formData.paymentMethod
+      };
+
+      console.log('TransactionModal: Sending data to API', transactionData);
+
+      if (isEditing && transaction) {
+        console.log('TransactionModal: Updating transaction', transaction.id);
+        await api.updateTransaction(transaction.id, transactionData);
+      } else {
+        console.log('TransactionModal: Creating new transaction');
+        await api.createTransaction(transactionData);
       }
+      
+      console.log('TransactionModal: API call successful');
+      
+      // Reset form
+      setFormData({
+        type: 'expense',
+        amount: 0,
+        category: '',
+        description: '',
+        date: new Date().toISOString().split('T')[0],
+        paymentMethod: ''
+      });
+      
+      // Refresh all related components
+      console.log('TransactionModal: Calling refresh functions');
+      if ((window as any).refreshTransactions) {
+        (window as any).refreshTransactions();
+      } else {
+        console.warn('TransactionModal: refreshTransactions function not found');
+      }
+      if ((window as any).refreshDashboard) {
+        (window as any).refreshDashboard();
+      } else {
+        console.warn('TransactionModal: refreshDashboard function not found');
+      }
+      if ((window as any).refreshBudgets) {
+        (window as any).refreshBudgets();
+      } else {
+        console.warn('TransactionModal: refreshBudgets function not found');
+      }
+      
+      console.log('TransactionModal: Closing modal');
+      onClose();
+    } catch (error) {
+      console.error('TransactionModal: Error saving transaction:', error);
+      alert(`Failed to save transaction: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleCancel = () => {
     setFormData({
-      type: defaultType,
+      type: 'expense',
       amount: 0,
       category: '',
-      transaction_date: new Date().toISOString().split('T')[0],
       description: '',
-      payment_method: ''
+      date: new Date().toISOString().split('T')[0],
+      paymentMethod: ''
     });
-    setErrors({});
     onClose();
   };
 
+  console.log('TransactionModal render: isOpen:', isOpen, 'transaction:', transaction);
+  
   if (!isOpen) return null;
 
   return (
-    <div className="modal" id="transactionModal" style={{ display: 'flex' }}>
+    <div className="modal active" id="transactionModal">
       <div className="modal-content">
         <div className="modal-header">
-          <h3 id="modalTitle">Add Transaction</h3>
-          <button className="modal-close" onClick={handleCancel}>&times;</button>
+          <h3 id="modalTitle">{isEditing ? 'Edit Transaction' : 'Add Transaction'}</h3>
+          <button className="modal-close" id="closeModal" onClick={handleCancel}>&times;</button>
         </div>
         <div className="modal-body">
           <form id="transactionForm" onSubmit={handleSubmit}>
@@ -179,7 +200,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   name="type" 
                   value="expense" 
                   checked={formData.type === 'expense'}
-                  onChange={(e) => handleInputChange('type', e.target.value as 'expense')}
+                  onChange={(e) => handleInputChange('type', e.target.value)}
                 />
                 <label htmlFor="expenseType" className="expense-label">Expense</label>
                 <input 
@@ -188,32 +209,31 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   name="type" 
                   value="income"
                   checked={formData.type === 'income'}
-                  onChange={(e) => handleInputChange('type', e.target.value as 'income')}
+                  onChange={(e) => handleInputChange('type', e.target.value)}
                 />
                 <label htmlFor="incomeType" className="income-label">Income</label>
               </div>
             </div>
-            
+
             <div className="form-group">
               <label className="form-label">Amount</label>
               <input 
                 type="number" 
-                className={`form-control ${errors.amount ? 'error' : ''}`}
+                className="form-control"
                 id="amount" 
                 placeholder="0.00" 
-                step="0.01" 
+                step="0.01"
                 value={formData.amount || ''}
-                onChange={(e) => handleInputChange('amount', parseFloat(e.target.value))}
+                onChange={(e) => handleInputChange('amount', parseFloat(e.target.value) || 0)}
                 required 
               />
-              {errors.amount && <span className="error-text">{errors.amount}</span>}
             </div>
             
             <div className="form-group">
               <label className="form-label">Category</label>
               <select 
-                className={`form-control ${errors.category ? 'error' : ''}`}
-                id="category" 
+                className="form-control"
+                id="category"
                 value={formData.category}
                 onChange={(e) => handleInputChange('category', e.target.value)}
                 required
@@ -221,24 +241,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 <option value="">Select a category</option>
                 {filteredCategories.map(category => (
                   <option key={category.id} value={category.name}>
-                    {category.icon} {category.name}
+                    {category.name}
                   </option>
                 ))}
               </select>
-              {errors.category && <span className="error-text">{errors.category}</span>}
-            </div>
-            
-            <div className="form-group">
-              <label className="form-label">Date</label>
-              <input 
-                type="date" 
-                className={`form-control ${errors.transaction_date ? 'error' : ''}`}
-                id="date" 
-                value={formData.transaction_date}
-                onChange={(e) => handleInputChange('transaction_date', e.target.value)}
-                required 
-              />
-              {errors.transaction_date && <span className="error-text">{errors.transaction_date}</span>}
             </div>
             
             <div className="form-group">
@@ -254,27 +260,42 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             </div>
             
             <div className="form-group">
+              <label className="form-label">Date</label>
+              <input 
+                type="date" 
+                className="form-control"
+                id="date" 
+                value={formData.date}
+                onChange={(e) => handleInputChange('date', e.target.value)}
+                required 
+              />
+            </div>
+            
+            <div className="form-group">
               <label className="form-label">Payment Method</label>
               <select 
-                className={`form-control ${errors.payment_method ? 'error' : ''}`}
-                id="paymentMethod" 
-                value={formData.payment_method}
-                onChange={(e) => handleInputChange('payment_method', e.target.value)}
+                className="form-control"
+                id="paymentMethod"
+                value={formData.paymentMethod}
+                onChange={(e) => handleInputChange('paymentMethod', e.target.value)}
                 required
               >
                 <option value="">Select payment method</option>
-                {paymentMethods.map(method => (
-                  <option key={method} value={method}>{method}</option>
-                ))}
+                <option value="Cash">Cash</option>
+                <option value="Credit Card">Credit Card</option>
+                <option value="Debit Card">Debit Card</option>
+                <option value="Bank Transfer">Bank Transfer</option>
+                <option value="PayPal">PayPal</option>
+                <option value="Auto-pay">Auto-pay</option>
+                <option value="Check">Check</option>
               </select>
-              {errors.payment_method && <span className="error-text">{errors.payment_method}</span>}
             </div>
             
             <div className="modal-actions">
-              <button type="button" className="btn btn--outline" onClick={handleCancel}>
+              <button type="button" className="btn btn--outline" id="cancelBtn" onClick={handleCancel}>
                 Cancel
               </button>
-              <button type="submit" className="btn btn--primary" disabled={loading}>
+              <button type="submit" className="btn btn--primary" id="saveTransactionBtn" disabled={loading}>
                 {loading ? 'Saving...' : 'Save Transaction'}
               </button>
             </div>

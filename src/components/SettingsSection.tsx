@@ -1,54 +1,258 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { api } from '../utils/api';
 
 interface Settings {
   currency: string;
   dateFormat: string;
-  theme: 'light' | 'dark';
-  notifications: boolean;
-  exportFormat: string;
-  budgetAlerts: boolean;
-  overdueReminders: boolean;
 }
 
 export const SettingsSection: React.FC = () => {
   const [settings, setSettings] = useState<Settings>({
     currency: 'USD',
-    dateFormat: 'MM/DD/YYYY',
-    theme: 'light',
-    notifications: true,
-    exportFormat: 'PDF',
-    budgetAlerts: true,
-    overdueReminders: true
+    dateFormat: 'MM/DD/YYYY'
   });
 
-  const [isSaving, setIsSaving] = useState(false);
+  useEffect(() => {
+    loadSettings();
+  }, []);
 
-  const handleSettingChange = (key: keyof Settings, value: any) => {
-    setSettings(prev => ({
-      ...prev,
+  const loadSettings = () => {
+    // Load settings from localStorage
+    const savedSettings = localStorage.getItem('financeTrackerSettings');
+    if (savedSettings) {
+      try {
+        const parsed = JSON.parse(savedSettings);
+        setSettings(parsed);
+      } catch (error) {
+        console.error('Error loading settings:', error);
+      }
+    }
+  };
+
+  const handleSettingChange = (key: keyof Settings, value: string) => {
+    const newSettings = {
+      ...settings,
       [key]: value
-    }));
+    };
+    setSettings(newSettings);
+    // Save to localStorage immediately
+    localStorage.setItem('financeTrackerSettings', JSON.stringify(newSettings));
   };
 
-  const saveSettings = async () => {
-    setIsSaving(true);
-    // Mock save operation
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setIsSaving(false);
-    alert('Settings saved successfully!');
-  };
+  const backupData = async () => {
+    try {
+      // Show loading state
+      const button = document.getElementById('backupDataBtn') as HTMLButtonElement;
+      const originalText = button.textContent;
+      button.textContent = 'Creating Backup...';
+      button.disabled = true;
 
-  const backupData = () => {
-    alert('Data backup feature would be implemented here');
+      // Fetch all data from the database
+      const [transactions, categories] = await Promise.all([
+        api.getTransactions(),
+        api.getCategories()
+      ]);
+      
+      const data = {
+        version: '1.0.0',
+        exportDate: new Date().toISOString(),
+        settings,
+        transactions,
+        categories
+      };
+      
+      const dataStr = JSON.stringify(data, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `finance-tracker-backup-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      // Reset button
+      button.textContent = originalText;
+      button.disabled = false;
+      
+      alert(`Backup created successfully! Downloaded ${transactions.length} transactions and ${categories.length} categories.`);
+    } catch (error) {
+      console.error('Error backing up data:', error);
+      alert('Error creating backup. Please try again.');
+      
+      // Reset button on error
+      const button = document.getElementById('backupDataBtn') as HTMLButtonElement;
+      button.textContent = 'Backup Data';
+      button.disabled = false;
+    }
   };
 
   const restoreData = () => {
-    alert('Data restore feature would be implemented here');
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        const button = document.getElementById('restoreDataBtn') as HTMLButtonElement;
+        const originalText = button.textContent;
+        button.textContent = 'Restoring...';
+        button.disabled = true;
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          try {
+            const data = JSON.parse(e.target?.result as string);
+            
+            // Validate backup file structure
+            if (!data.transactions || !data.categories || !Array.isArray(data.transactions) || !Array.isArray(data.categories)) {
+              alert('Invalid backup file format. Please select a valid backup file.');
+              button.textContent = originalText;
+              button.disabled = false;
+              return;
+            }
+
+            // Confirm restore operation
+            if (!window.confirm(`This will replace all existing data with the backup data.\n\nBackup contains:\n- ${data.transactions.length} transactions\n- ${data.categories.length} categories\n\nAre you sure you want to continue?`)) {
+              button.textContent = originalText;
+              button.disabled = false;
+              return;
+            }
+
+            let restoredTransactions = 0;
+            let restoredCategories = 0;
+
+            // Restore categories first (transactions depend on them)
+            for (const category of data.categories) {
+              try {
+                await api.createCategory({
+                  name: category.name,
+                  icon: category.icon || '📝',
+                  color: category.color || '#6b7280',
+                  budget_limit: category.budget_limit || category.budgetLimit || 0,
+                  type: category.type || 'expense'
+                });
+                restoredCategories++;
+              } catch (error) {
+                console.warn('Error restoring category:', category.name, error);
+              }
+            }
+
+            // Restore transactions
+            for (const transaction of data.transactions) {
+              try {
+                await api.createTransaction({
+                  type: transaction.type,
+                  amount: parseFloat(transaction.amount),
+                  category: transaction.category,
+                  description: transaction.description || '',
+                  payment_method: transaction.payment_method || transaction.paymentMethod || 'Cash',
+                  transaction_date: transaction.transaction_date || transaction.date
+                });
+                restoredTransactions++;
+              } catch (error) {
+                console.warn('Error restoring transaction:', transaction.id, error);
+              }
+            }
+
+            // Restore settings if available
+            if (data.settings) {
+              setSettings(data.settings);
+              localStorage.setItem('financeTrackerSettings', JSON.stringify(data.settings));
+            }
+
+            button.textContent = originalText;
+            button.disabled = false;
+            
+            alert(`Data restored successfully!\n\nRestored:\n- ${restoredCategories} categories\n- ${restoredTransactions} transactions\n\nPlease refresh the page to see the restored data.`);
+            
+            // Trigger refresh of dashboard and other components
+            if ((window as any).refreshDashboard) {
+              (window as any).refreshDashboard();
+            }
+            if ((window as any).refreshBudgets) {
+              (window as any).refreshBudgets();
+            }
+          } catch (error) {
+            console.error('Error restoring data:', error);
+            alert('Error restoring data. Please check the file format and try again.');
+            button.textContent = originalText;
+            button.disabled = false;
+          }
+        };
+        reader.readAsText(file);
+      }
+    };
+    input.click();
   };
 
-  const clearData = () => {
-    if (window.confirm('Are you sure you want to clear all data? This action cannot be undone.')) {
-      alert('Data clear feature would be implemented here');
+  const clearData = async () => {
+    if (!window.confirm('Are you sure you want to clear all data? This will permanently delete:\n\n• All transactions\n• All categories\n• All settings\n\nThis action cannot be undone!')) {
+      return;
+    }
+
+    // Double confirmation for safety
+    if (!window.confirm('This is your final warning. All data will be permanently deleted. Are you absolutely sure?')) {
+      return;
+    }
+
+    try {
+      const button = document.getElementById('clearDataBtn') as HTMLButtonElement;
+      const originalText = button.textContent;
+      button.textContent = 'Clearing Data...';
+      button.disabled = true;
+
+      // Get all data to delete
+      const [transactions, categories] = await Promise.all([
+        api.getTransactions(),
+        api.getCategories()
+      ]);
+
+      let deletedTransactions = 0;
+      let deletedCategories = 0;
+
+      // Delete all transactions
+      for (const transaction of transactions) {
+        try {
+          await api.deleteTransaction(transaction.id);
+          deletedTransactions++;
+        } catch (error) {
+          console.warn('Error deleting transaction:', transaction.id, error);
+        }
+      }
+
+      // Delete all categories
+      for (const category of categories) {
+        try {
+          await api.deleteCategory(category.id);
+          deletedCategories++;
+        } catch (error) {
+          console.warn('Error deleting category:', category.id, error);
+        }
+      }
+
+      // Clear local settings
+      localStorage.removeItem('financeTrackerSettings');
+      setSettings({
+        currency: 'USD',
+        dateFormat: 'MM/DD/YYYY'
+      });
+
+      button.textContent = originalText;
+      button.disabled = false;
+
+      alert(`All data has been cleared!\n\nDeleted:\n- ${deletedTransactions} transactions\n- ${deletedCategories} categories\n- All settings\n\nThe page will now refresh.`);
+      
+      // Refresh the page to reset the UI
+      window.location.reload();
+    } catch (error) {
+      console.error('Error clearing data:', error);
+      alert('Error clearing data. Please try again.');
+      
+      const button = document.getElementById('clearDataBtn') as HTMLButtonElement;
+      button.textContent = 'Clear All Data';
+      button.disabled = false;
     }
   };
 
@@ -71,12 +275,8 @@ export const SettingsSection: React.FC = () => {
                 <option value="USD">USD ($)</option>
                 <option value="EUR">EUR (€)</option>
                 <option value="GBP">GBP (£)</option>
-                <option value="JPY">JPY (¥)</option>
-                <option value="CAD">CAD (C$)</option>
-                <option value="AUD">AUD (A$)</option>
               </select>
             </div>
-            
             <div className="form-group">
               <label className="form-label">Date Format</label>
               <select 
@@ -88,89 +288,7 @@ export const SettingsSection: React.FC = () => {
                 <option value="MM/DD/YYYY">MM/DD/YYYY</option>
                 <option value="DD/MM/YYYY">DD/MM/YYYY</option>
                 <option value="YYYY-MM-DD">YYYY-MM-DD</option>
-                <option value="DD-MM-YYYY">DD-MM-YYYY</option>
               </select>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Theme</label>
-              <select 
-                className="form-control"
-                value={settings.theme}
-                onChange={(e) => handleSettingChange('theme', e.target.value as 'light' | 'dark')}
-              >
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-                <option value="auto">Auto (System)</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Default Export Format</label>
-              <select 
-                className="form-control"
-                value={settings.exportFormat}
-                onChange={(e) => handleSettingChange('exportFormat', e.target.value)}
-              >
-                <option value="PDF">PDF</option>
-                <option value="Excel">Excel (XLSX)</option>
-                <option value="CSV">CSV</option>
-                <option value="JSON">JSON</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card__header">
-            <h3>Notifications & Alerts</h3>
-          </div>
-          <div className="card__body">
-            <div className="settings-toggles">
-              <div className="toggle-item">
-                <div className="toggle-info">
-                  <label className="form-label">Enable Notifications</label>
-                  <p className="toggle-description">Receive general app notifications</p>
-                </div>
-                <label className="toggle-switch">
-                  <input 
-                    type="checkbox" 
-                    checked={settings.notifications}
-                    onChange={(e) => handleSettingChange('notifications', e.target.checked)}
-                  />
-                  <span className="toggle-slider"></span>
-                </label>
-              </div>
-
-              <div className="toggle-item">
-                <div className="toggle-info">
-                  <label className="form-label">Budget Alerts</label>
-                  <p className="toggle-description">Get notified when approaching budget limits</p>
-                </div>
-                <label className="toggle-switch">
-                  <input 
-                    type="checkbox" 
-                    checked={settings.budgetAlerts}
-                    onChange={(e) => handleSettingChange('budgetAlerts', e.target.checked)}
-                  />
-                  <span className="toggle-slider"></span>
-                </label>
-              </div>
-
-              <div className="toggle-item">
-                <div className="toggle-info">
-                  <label className="form-label">Overdue Reminders</label>
-                  <p className="toggle-description">Receive reminders for overdue loan payments</p>
-                </div>
-                <label className="toggle-switch">
-                  <input 
-                    type="checkbox" 
-                    checked={settings.overdueReminders}
-                    onChange={(e) => handleSettingChange('overdueReminders', e.target.checked)}
-                  />
-                  <span className="toggle-slider"></span>
-                </label>
-              </div>
             </div>
           </div>
         </div>
@@ -180,79 +298,23 @@ export const SettingsSection: React.FC = () => {
             <h3>Data Management</h3>
           </div>
           <div className="card__body">
-            <div className="data-actions">
-              <button 
-                className="btn btn--secondary" 
-                id="backupDataBtn"
-                onClick={backupData}
-              >
-                📦 Backup Data
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '20px' }}>
+              <button className="btn btn--secondary" id="backupDataBtn" onClick={backupData}>
+                Backup Data
               </button>
-              <button 
-                className="btn btn--outline" 
-                id="restoreDataBtn"
-                onClick={restoreData}
-              >
-                📥 Restore Data
+              <button className="btn btn--outline" id="restoreDataBtn" onClick={restoreData}>
+                Restore Data
               </button>
-              <button 
-                className="btn btn--outline danger" 
-                id="clearDataBtn"
-                onClick={clearData}
-              >
-                🗑️ Clear All Data
+              <button className="btn btn--outline" id="clearDataBtn" onClick={clearData} style={{ color: '#ef4444', borderColor: '#ef4444' }}>
+                Clear All Data
               </button>
             </div>
-            <div className="data-info">
-              <p>
-                <strong>Backup:</strong> Export all your data to a secure backup file.
-              </p>
-              <p>
-                <strong>Restore:</strong> Import data from a previous backup.
-              </p>
-              <p>
-                <strong>Clear:</strong> Permanently delete all application data. This cannot be undone.
-              </p>
+            <div style={{ fontSize: '14px', color: '#6b7280', lineHeight: '1.5' }}>
+              <p><strong>Backup:</strong> Download all your transactions, categories, and settings as a JSON file.</p>
+              <p><strong>Restore:</strong> Upload a backup file to restore your data. This will add to existing data.</p>
+              <p><strong>Clear:</strong> Permanently delete all data from the database. This cannot be undone.</p>
             </div>
           </div>
-        </div>
-
-        <div className="card">
-          <div className="card__header">
-            <h3>Application Info</h3>
-          </div>
-          <div className="card__body">
-            <div className="app-info">
-              <div className="info-item">
-                <span className="info-label">Version:</span>
-                <span className="info-value">1.0.0</span>
-              </div>
-              <div className="info-item">
-                <span className="info-label">Last Updated:</span>
-                <span className="info-value">{new Date().toLocaleDateString()}</span>
-              </div>
-              <div className="info-item">
-                <span className="info-label">Data Storage:</span>
-                <span className="info-value">Supabase PostgreSQL</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="settings-actions">
-          <button 
-            className={`btn btn--primary ${isSaving ? 'loading' : ''}`}
-            onClick={saveSettings}
-            disabled={isSaving}
-          >
-            {isSaving ? 'Saving...' : 'Save Settings'}
-          </button>
-          <button 
-            className="btn btn--outline"
-            onClick={() => window.location.reload()}
-          >
-            Reset to Defaults
-          </button>
         </div>
       </div>
     </section>

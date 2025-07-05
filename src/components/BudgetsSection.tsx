@@ -1,6 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { Category } from '../types';
+import { api } from '../utils/api';
 
-interface Budget {
+interface BudgetsSectionProps {
+  onAddBudget?: () => void;
+  onEditBudget?: (budget: any) => void;
+}
+
+interface CategoryBudget {
   categoryId: number;
   categoryName: string;
   categoryIcon: string;
@@ -9,70 +16,73 @@ interface Budget {
   period: string;
 }
 
-interface BudgetsSectionProps {
-  onAddBudget?: () => void;
-}
-
 export const BudgetsSection: React.FC<BudgetsSectionProps> = ({ onAddBudget }) => {
-  // Mock data matching the reference HTML structure
-  const [budgets] = useState<Budget[]>([
-    {
-      categoryId: 1,
-      categoryName: 'Food & Dining',
-      categoryIcon: '🍽️',
-      limit: 500,
-      spent: 201.30,
-      period: 'monthly'
-    },
-    {
-      categoryId: 2,
-      categoryName: 'Transportation',
-      categoryIcon: '🚗',
-      limit: 200,
-      spent: 60.50,
-      period: 'monthly'
-    },
-    {
-      categoryId: 3,
-      categoryName: 'Shopping',
-      categoryIcon: '🛍️',
-      limit: 300,
-      spent: 67.80,
-      period: 'monthly'
-    },
-    {
-      categoryId: 4,
-      categoryName: 'Entertainment',
-      categoryIcon: '🎬',
-      limit: 150,
-      spent: 55.99,
-      period: 'monthly'
-    },
-    {
-      categoryId: 5,
-      categoryName: 'Bills & Utilities',
-      categoryIcon: '⚡',
-      limit: 400,
-      spent: 162.30,
-      period: 'monthly'
-    },
-    {
-      categoryId: 6,
-      categoryName: 'Healthcare',
-      categoryIcon: '🏥',
-      limit: 200,
-      spent: 89.99,
-      period: 'monthly'
-    },
-    {
-      categoryId: 7,
-      categoryName: 'Education',
-      categoryIcon: '📚',
-      limit: 250,
-      spent: 120.00,
-      period: 'monthly'
+  const [budgets, setBudgets] = useState<CategoryBudget[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [categoriesData, transactionsData] = await Promise.all([
+        api.getCategories(),
+        api.getTransactions()
+      ]);
+      
+      calculateBudgets(categoriesData, transactionsData);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setLoading(false);
     }
-  ]);
+  };
+
+  const calculateBudgets = (categories: Category[], transactions: any[]) => {
+    const currentMonth = new Date().getMonth();
+    const currentYear = new Date().getFullYear();
+    
+    const categoryBudgets = categories
+      .filter(cat => cat.budget_limit > 0)
+      .map(category => {
+        const spent = transactions
+          .filter(t => t.type === 'expense' && t.category === category.name)
+          .filter(t => {
+            const transactionDate = new Date(t.transaction_date);
+            return transactionDate.getMonth() === currentMonth && 
+                   transactionDate.getFullYear() === currentYear;
+          })
+          .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+        
+        return {
+          categoryId: category.id,
+          categoryName: category.name,
+          categoryIcon: category.icon || '📝',
+          limit: category.budget_limit,
+          spent: spent,
+          period: "monthly"
+        };
+      });
+    
+    setBudgets(categoryBudgets);
+  };
+
+  // Add this function to handle the refresh after a new budget is added
+  const refreshBudgets = () => {
+    loadData();
+  };
+
+  // Expose this function so parent components can call it
+  React.useEffect(() => {
+    // Store the refresh function on the window object so it can be called from App.tsx
+    (window as any).refreshBudgets = refreshBudgets;
+    
+    return () => {
+      delete (window as any).refreshBudgets;
+    };
+  }, []);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -80,6 +90,14 @@ export const BudgetsSection: React.FC<BudgetsSectionProps> = ({ onAddBudget }) =
       currency: 'USD'
     }).format(amount);
   };
+
+  if (loading) {
+    return (
+      <section className="content-section active" id="budgets">
+        <div className="loading">Loading budgets...</div>
+      </section>
+    );
+  }
 
   return (
     <section className="content-section active" id="budgets">

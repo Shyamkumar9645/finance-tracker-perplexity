@@ -1,4 +1,4 @@
-import { Contact, Loan, Payment, LoanBalance, Transaction, Category } from '../types';
+import { Contact, Loan, Payment, LoanBalance, Transaction, Category, Budget } from '../types';
 
 const API_BASE = 'http://localhost:3001/api';
 
@@ -96,6 +96,104 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(category)
     });
+    return response.json();
+  },
+
+  updateCategory: async (id: number, category: Partial<Omit<Category, 'id' | 'created_at'>>): Promise<Category> => {
+    const response = await fetch(`${API_BASE}/categories/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(category)
+    });
+    return response.json();
+  },
+
+  deleteCategory: async (id: number): Promise<{ success: boolean }> => {
+    const response = await fetch(`${API_BASE}/categories/${id}`, {
+      method: 'DELETE'
+    });
+    return response.json();
+  },
+
+  // Budgets
+  getBudgets: async (): Promise<Budget[]> => {
+    const response = await fetch(`${API_BASE}/budgets`);
+    return response.json();
+  },
+
+  createBudget: async (budget: Omit<Budget, 'id' | 'created_at' | 'updated_at' | 'category_name' | 'spent' | 'remaining'>): Promise<{ id: number }> => {
+    const response = await fetch(`${API_BASE}/budgets`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(budget)
+    });
+    return response.json();
+  },
+
+  updateBudget: async (id: number, budget: Partial<Omit<Budget, 'id' | 'created_at' | 'category_name' | 'spent' | 'remaining'>>): Promise<Budget> => {
+    const response = await fetch(`${API_BASE}/budgets/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(budget)
+    });
+    return response.json();
+  },
+
+  deleteBudget: async (id: number): Promise<{ success: boolean }> => {
+    const response = await fetch(`${API_BASE}/budgets/${id}`, {
+      method: 'DELETE'
+    });
+    return response.json();
+  },
+
+  // Dashboard Analytics
+  getDashboardSummary: async (): Promise<{
+    totalBalance: number;
+    monthlyIncome: number;
+    monthlyExpenses: number;
+    savingsRate: number;
+    totalIncome: number;
+    totalExpenses: number;
+  }> => {
+    const response = await fetch(`${API_BASE}/dashboard/summary`);
+    return response.json();
+  },
+
+  getRecentTransactions: async (): Promise<any[]> => {
+    const response = await fetch(`${API_BASE}/dashboard/recent-transactions`);
+    return response.json();
+  },
+
+  getCategorySpending: async (): Promise<{
+    category: string;
+    total: number;
+    icon: string;
+    color: string;
+  }[]> => {
+    const response = await fetch(`${API_BASE}/dashboard/category-spending`);
+    return response.json();
+  },
+
+  getBudgetProgress: async (): Promise<{
+    category: string;
+    icon: string;
+    color: string;
+    spent: number;
+    budget: number;
+    percentage: number;
+    status: string;
+  }[]> => {
+    const response = await fetch(`${API_BASE}/dashboard/budget-progress`);
+    return response.json();
+  },
+
+  getSpendingTrend: async (): Promise<{
+    month: string;
+    income: number;
+    expenses: number;
+    net: number;
+  }[]> => {
+    const response = await fetch(`${API_BASE}/dashboard/spending-trend`);
     return response.json();
   }
 };

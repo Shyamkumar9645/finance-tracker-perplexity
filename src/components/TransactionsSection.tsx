@@ -4,9 +4,10 @@ import { api } from '../utils/api';
 
 interface TransactionsSectionProps {
   onAddTransaction?: () => void;
+  onEditTransaction?: (transaction: Transaction) => void;
 }
 
-export const TransactionsSection: React.FC<TransactionsSectionProps> = ({ onAddTransaction }) => {
+export const TransactionsSection: React.FC<TransactionsSectionProps> = ({ onAddTransaction, onEditTransaction }) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,8 +60,12 @@ export const TransactionsSection: React.FC<TransactionsSectionProps> = ({ onAddT
   };
 
   const handleEdit = (transaction: Transaction) => {
-    console.log('Edit transaction:', transaction);
-    // TODO: Open edit modal with transaction data
+    console.log('TransactionsSection: Edit button clicked', transaction);
+    if (onEditTransaction) {
+      onEditTransaction(transaction);
+    } else {
+      console.warn('TransactionsSection: onEditTransaction prop not provided');
+    }
   };
 
   const handleDelete = async (transactionId: number) => {
