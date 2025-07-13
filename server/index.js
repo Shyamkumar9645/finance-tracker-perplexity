@@ -794,6 +794,206 @@ app.get('/api/dashboard/spending-trend', async (req, res) => {
   }
 });
 
+// Borrowers API (Personal Loan Tracker)
+app.get('/api/borrowers', async (req, res) => {
+  try {
+    const { data: borrowers, error: borrowersError } = await supabase
+      .from('borrowers')
+      .select('*')
+      .order('name');
+    
+    if (borrowersError) throw borrowersError;
+    
+    // Calculate totals and get transactions for each borrower
+    const borrowersWithCalculations = await Promise.all(
+      borrowers.map(async (borrower) => {
+        const { data: transactions, error: transactionError } = await supabase
+          .from('loan_transactions')
+          .select('*')
+          .eq('borrower_id', borrower.id)
+          .order('date', { ascending: false });
+        
+        if (transactionError) throw transactionError;
+        
+        let totalLent = 0;
+        let totalReceived = 0;
+        let totalInterest = 0;
+        
+        // Calculate interest and totals
+        transactions.forEach(transaction => {
+          if (transaction.type === 'given') {
+            totalLent += parseFloat(transaction.amount);
+            // Calculate interest earned
+            const startDate = new Date(transaction.date);
+            const endDate = new Date();
+            const daysDiff = Math.max(0, Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)));
+            const yearsDiff = daysDiff / 365;
+            const interest = parseFloat(transaction.amount) * (parseFloat(transaction.interest_rate) / 100) * yearsDiff;
+            transaction.interest_earned = Math.round(interest * 100) / 100;
+            totalInterest += transaction.interest_earned;
+          } else {
+            totalReceived += parseFloat(transaction.amount);
+          }
+        });
+        
+        return {
+          ...borrower,
+          totalLent,
+          totalReceived,
+          outstanding: totalLent - totalReceived,
+          totalInterest: Math.round(totalInterest * 100) / 100,
+          transactions
+        };
+      })
+    );
+    
+    res.json(borrowersWithCalculations);
+  } catch (err) {
+    console.error('Error fetching borrowers:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/borrowers', async (req, res) => {
+  try {
+    const { name, contact, notes } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+    
+    const { data, error } = await supabase
+      .from('borrowers')
+      .insert([{ name, contact, notes }])
+      .select();
+    
+    if (error) throw error;
+    
+    // Return borrower with empty calculations
+    const borrower = {
+      ...data[0],
+      totalLent: 0,
+      totalReceived: 0,
+      outstanding: 0,
+      totalInterest: 0,
+      transactions: []
+    };
+    
+    res.json(borrower);
+  } catch (err) {
+    console.error('Error creating borrower:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/borrowers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, contact, notes } = req.body;
+    
+    const { data, error } = await supabase
+      .from('borrowers')
+      .update({
+        name,
+        contact,
+        notes,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select();
+    
+    if (error) throw error;
+    res.json(data[0]);
+  } catch (err) {
+    console.error('Error updating borrower:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/borrowers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const { error } = await supabase
+      .from('borrowers')
+      .delete()
+      .eq('id', id);
+    
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting borrower:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get transactions for a specific borrower
+app.get('/api/borrowers/:id/transactions', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const { data: transactions, error } = await supabase
+      .from('loan_transactions')
+      .select('*')
+      .eq('borrower_id', id)
+      .order('date', { ascending: false });
+    
+    if (error) throw error;
+    
+    // Calculate interest for each transaction
+    const transactionsWithInterest = transactions.map(transaction => {
+      if (transaction.type === 'given') {
+        const startDate = new Date(transaction.date);
+        const endDate = new Date();
+        const daysDiff = Math.max(0, Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)));
+        const yearsDiff = daysDiff / 365;
+        const interest = parseFloat(transaction.amount) * (parseFloat(transaction.interest_rate) / 100) * yearsDiff;
+        transaction.interest_earned = Math.round(interest * 100) / 100;
+      }
+      return transaction;
+    });
+    
+    res.json(transactionsWithInterest);
+  } catch (err) {
+    console.error('Error fetching transactions:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Loan Transactions API
+app.post('/api/loan-transactions', async (req, res) => {
+  try {
+    const { borrower_id, type, amount, interest_rate, date, due_date, description } = req.body;
+    
+    if (!borrower_id || !type || !amount || amount <= 0 || !date) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
+    if (interest_rate < 0) {
+      return res.status(400).json({ error: 'Interest rate cannot be negative' });
+    }
+    
+    const { data, error } = await supabase
+      .from('loan_transactions')
+      .insert([{
+        borrower_id: parseInt(borrower_id),
+        type,
+        amount: parseFloat(amount),
+        interest_rate: parseFloat(interest_rate),
+        date,
+        due_date: due_date || null,
+        description: description || (type === 'given' ? 'Money Given' : 'Money Received')
+      }])
+      .select();
+    
+    if (error) throw error;
+    res.json({ id: data[0].id });
+  } catch (err) {
+    console.error('Error creating loan transaction:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log('Using Supabase database only');
